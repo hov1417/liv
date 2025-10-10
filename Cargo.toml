@@ -1,0 +1,16 @@
+[package]
+name = "liv"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs"] }
+reqwest = { version = "0.12", features = ["json", "gzip", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+dirs = "5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+tar = "0.4"
+walkdir = "2"
