@@ -1,5 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::Local;
+use futures_util::stream::TryStreamExt;
+use octocrab::Octocrab;
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -8,9 +10,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 use tar::Builder;
+use tokio::pin;
 use tokio::{io::AsyncReadExt, process::Command};
 
-#[derive(Debug)]
 struct ConfigVals {
     github_token: String,
     github_user: String,
@@ -59,23 +61,23 @@ fn parse_config(raw: &str) -> Result<ConfigVals> {
         github_user: github_user.context("parsing GitHub user")?,
     })
 }
-// TODO create client, or https://github.com/XAMPPRocky/octocrab
-async fn list_user_repos(token: &str) -> Result<Vec<Repo>> {
-    // Use GitHub REST (authenticated) to fetch up to 100 repos (public+private).
-    // Note: for more than 100, add simple pagination.
-    let url =
-        "https://api.github.com/user/repos?per_page=100&sort=full_name&direction=asc&type=all";
-    let client = reqwest::Client::builder()
-        .user_agent("liv-rust/0.1")
-        .build()?;
-    let res = client
-        .get(url)
-        .bearer_auth(token)
+
+async fn list_user_repos(github_client: &Octocrab, cfg: &ConfigVals) -> Result<Vec<Repo>> {
+    let repositories = github_client
+        .users(cfg.github_user.as_str())
+        .repos()
         .send()
         .await?
-        .error_for_status()?;
-    let repos: Vec<Repo> = res.json().await?;
-    Ok(repos)
+        .into_stream(&github_client);
+    pin!(repositories);
+    let mut result = Vec::new();
+    while let Some(repository) = repositories.try_next().await? {
+        result.push(Repo {
+            name: repository.name,
+            ssh_url: repository.ssh_url.unwrap(), // TODO unwrap?
+        });
+    }
+    Ok(result)
 }
 
 async fn run_cmd(mut cmd: Command, what: &str) -> Result<()> {
@@ -191,8 +193,11 @@ async fn main() -> Result<()> {
     clean_dir(&tmp_dir).await?;
     tokio::fs::create_dir_all(&tmp_dir).await?;
 
-    // Fetch repos
-    let repos = list_user_repos(&cfg.github_token).await?;
+    let github_client = octocrab::OctocrabBuilder::new()
+        .personal_token(cfg.github_token.as_str())
+        .build()?;
+
+    let repos = list_user_repos(&github_client, &cfg).await?;
     if repos.is_empty() {
         eprintln!("No repositories returned.");
     }
