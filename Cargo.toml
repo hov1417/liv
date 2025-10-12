@@ -14,3 +14,4 @@ dirs = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tar = "0.4"
 walkdir = "2"
+toml = "0.9.8"

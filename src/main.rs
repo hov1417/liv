@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::Local;
-use regex::Regex;
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -36,56 +35,36 @@ async fn read_file_if_exists(p: &Path) -> Result<String> {
     }
 }
 
-// TODO: replace with toml
-// Very small HOCON-ish parser for two scalars: github.token and github.user.
-// Falls back to env vars GITHUB_TOKEN / GITHUB_USER if not found.
 fn parse_config(raw: &str) -> Result<ConfigVals> {
-    // Accept forms like:
-    // github.token = "...."
-    // github.token: '...'
-    // github { token = abc }
-    let re = |k: &str| {
-        Regex::new(&format!(
-            r#"(?m){}(?:\s*[\.:=]\s*|\s*\{{[^}}]*{})\s*["']?([A-Za-z0-9_\-.:/+=@]+)["']?"#,
-            regex::escape(k),
-            regex::escape(k.split('.').last().unwrap())
-        ))
-            .unwrap()
-    };
-    let token_re = re("github.token");
-    let user_re = re("github.user");
-
-    let from_env_or = |key: &str, fallback: Option<String>| -> Result<String> {
-        if let Ok(v) = env::var(key) {
-            if !v.trim().is_empty() {
-                return Ok(v);
-            }
-        }
-        if let Some(v) = fallback {
-            if !v.trim().is_empty() {
-                return Ok(v);
-            }
-        }
-        Err(anyhow!("{} not set in config or env", key))
-    };
-
-    let token = token_re
-        .captures(raw)
-        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
-    let user = user_re
-        .captures(raw)
-        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
-
+    let parsed =
+        toml::from_str::<toml::Value>(raw).with_context(|| format!("parsing {:?}", raw))?;
+    let github_token = env::var("GITHUB_TOKEN").ok().or_else(|| {
+        parsed
+            .get("github")
+            .and_then(|v| v.as_table())
+            .and_then(|v| v.get("token"))
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string())
+    });
+    let github_user = env::var("GITHUB_USER").ok().or_else(|| {
+        parsed
+            .get("github")
+            .and_then(|v| v.as_table())
+            .and_then(|v| v.get("user"))
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string())
+    });
     Ok(ConfigVals {
-        github_token: from_env_or("GITHUB_TOKEN", token)?,
-        github_user: from_env_or("GITHUB_USER", user)?,
+        github_token: github_token.context("parsing GitHub token")?,
+        github_user: github_user.context("parsing GitHub user")?,
     })
 }
 // TODO create client, or https://github.com/XAMPPRocky/octocrab
 async fn list_user_repos(token: &str) -> Result<Vec<Repo>> {
     // Use GitHub REST (authenticated) to fetch up to 100 repos (public+private).
     // Note: for more than 100, add simple pagination.
-    let url = "https://api.github.com/user/repos?per_page=100&sort=full_name&direction=asc&type=all";
+    let url =
+        "https://api.github.com/user/repos?per_page=100&sort=full_name&direction=asc&type=all";
     let client = reqwest::Client::builder()
         .user_agent("liv-rust/0.1")
         .build()?;
@@ -136,7 +115,7 @@ async fn clone_repo(ssh_url: &str, dest: &Path) -> Result<()> {
         },
         "git clone --mirror",
     )
-        .await?;
+    .await?;
     println!("Cloned {}", ssh_url);
     Ok(())
 }
@@ -162,7 +141,7 @@ async fn bundle_repo(repo_dir: &Path, bundle_path: &Path) -> Result<()> {
         },
         "git bundle create",
     )
-        .await?;
+    .await?;
     println!("Bundled {}", repo_dir.display());
     Ok(())
 }
@@ -197,7 +176,7 @@ fn tar_bundles(src_dir: &Path, out_tar: &Path) -> Result<()> {
 async fn main() -> Result<()> {
     // Paths
     let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot find home dir"))?;
-    let config_path = home.join(".config/liv/liv.conf");
+    let config_path = home.join(".config/liv/liv.toml");
     let tmp_dir = PathBuf::from("/tmp/github");
     let backup_dir = home.join("Backup/github");
     let date = Local::now().date_naive().to_string();
@@ -205,8 +184,8 @@ async fn main() -> Result<()> {
 
     // Read config
     let raw_cfg = read_file_if_exists(&config_path).await?;
-    let cfg = parse_config(&raw_cfg)
-        .with_context(|| format!("reading {:?}", config_path.display()))?;
+    let cfg =
+        parse_config(&raw_cfg).with_context(|| format!("reading {:?}", config_path.display()))?;
 
     // Start fresh temp dir
     clean_dir(&tmp_dir).await?;
