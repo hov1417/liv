@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::Local;
 use futures_util::stream::TryStreamExt;
+use futures_util::StreamExt;
+use gix::create::{Kind, Options};
 use octocrab::Octocrab;
 use serde::Deserialize;
 use std::env;
@@ -9,6 +11,7 @@ use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::AtomicBool;
 use tar::Builder;
 use tokio::pin;
 use tokio::{io::AsyncReadExt, process::Command};
@@ -68,7 +71,8 @@ async fn list_user_repos(github_client: &Octocrab, cfg: &ConfigVals) -> Result<V
         .repos()
         .send()
         .await?
-        .into_stream(&github_client);
+        .into_stream(&github_client)
+        .take(3); // TODO, just for tests
     pin!(repositories);
     let mut result = Vec::new();
     while let Some(repository) = repositories.try_next().await? {
@@ -102,22 +106,33 @@ async fn clean_dir(p: &Path) -> Result<()> {
 }
 
 // TODO: use rust git implementation
-async fn clone_repo(ssh_url: &str, dest: &Path) -> Result<()> {
-    println!("Cloning {} to {}", ssh_url, dest.display());
-    run_cmd(
-        {
-            let mut c = Command::new("git");
-            c.arg("clone")
-                .arg("--mirror")
-                .arg(ssh_url)
-                .arg(dest)
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit());
-            c
-        },
-        "git clone --mirror",
-    )
-    .await?;
+async fn clone_repo(repo_name: &str, ssh_url: &str, dest: &Path) -> Result<()> {
+    let repo_name = repo_name.to_owned();
+    let ssh = ssh_url.to_owned();
+    let dest = dest.to_owned();
+    println!("Cloning {} to {}", ssh, dest.display());
+    let (_r, _out) = tokio::task::spawn_blocking(move || {
+        let mut prepare_fetch = gix::clone::PrepareFetch::new(
+            ssh,
+            dest,
+            Kind::Bare,
+            Options {
+                destination_must_be_empty: true,
+                fs_capabilities: None,
+            },
+            gix::open::Options::default(),
+        )
+        .context("Prepare fetch error")?;
+        prepare_fetch
+            .fetch_only(
+                prodash::progress::Log::new(format!("Cloning {repo_name}"), None),
+                &AtomicBool::new(false),
+            )
+            .context("Fetch error")
+    })
+    .await
+    .context("Tokio spawn")??;
+
     println!("Cloned {}", ssh_url);
     Ok(())
 }
@@ -203,7 +218,7 @@ async fn main() -> Result<()> {
     }
 
     // Process repos concurrently (limit to avoid too many ssh connections)
-    let concurrency = 6usize;
+    let concurrency = 6;
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(concurrency));
 
     let mut tasks = Vec::with_capacity(repos.len());
@@ -219,8 +234,9 @@ async fn main() -> Result<()> {
             let repo_dir = tmp_dir.join(&repo_name);
             let bundle_path = tmp_dir.join(format!("{}.bundle", repo_name));
 
+            // TODO error handling
             // Clone -> bundle -> clean
-            if let Err(e) = clone_repo(&ssh_url, &repo_dir).await {
+            if let Err(e) = clone_repo(&repo_name, &ssh_url, &repo_dir).await {
                 eprintln!("[{}] clone error: {e:#}", repo_name);
                 return;
             }

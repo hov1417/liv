@@ -5,13 +5,14 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs"] }
-reqwest = { version = "0.12", features = ["json", "gzip", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 dirs = "5"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tar = "0.4"
 walkdir = "2"
 toml = "0.9.8"
-octocrab = { version = "0.47.0" , features = ["stream"]}
+octocrab = { version = "0.47.0", features = ["stream"] }
 futures-util = "0.3.31"
+gix = { version = "0.73.0", default-features = false, features = ["blocking-http-transport-reqwest-native-tls", "basic", "parallel"] }
+prodash = { version = "30.0.1", features = ["log", "progress-log"] }
