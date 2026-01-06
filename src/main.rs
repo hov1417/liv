@@ -71,7 +71,7 @@ async fn list_user_repos(github_client: &Octocrab, cfg: &ConfigVals) -> Result<V
         .repos()
         .send()
         .await?
-        .into_stream(&github_client)
+        .into_stream(github_client)
         .take(3); // TODO, just for tests
     pin!(repositories);
     let mut result = Vec::new();
@@ -105,7 +105,6 @@ async fn clean_dir(p: &Path) -> Result<()> {
     Ok(())
 }
 
-// TODO: use rust git implementation
 async fn clone_repo(repo_name: &str, ssh_url: &str, dest: &Path) -> Result<()> {
     let repo_name = repo_name.to_owned();
     let ssh = ssh_url.to_owned();
@@ -144,7 +143,6 @@ async fn bundle_repo(repo_dir: &Path, bundle_path: &Path) -> Result<()> {
         repo_dir.display(),
         bundle_path.display()
     );
-    // Use --all to include all refs (heads+tags). Works on bare/mirror clones.
     run_cmd(
         {
             let mut c = Command::new("git");
