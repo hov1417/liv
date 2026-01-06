@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use eyre::{eyre, Context, Result};
 use chrono::Local;
 use futures_util::stream::TryStreamExt;
 use futures_util::StreamExt;
@@ -12,6 +12,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
+use eyre::ContextCompat;
 use tar::Builder;
 use tokio::pin;
 use tokio::{io::AsyncReadExt, process::Command};
@@ -92,7 +93,7 @@ async fn run_cmd(mut cmd: Command, what: &str) -> Result<()> {
         .await
         .with_context(|| format!("spawning {}", what))?;
     if !status.success() {
-        return Err(anyhow!("{} failed with {}", what, status));
+        return Err(eyre!("{} failed with {}", what, status));
     }
     Ok(())
 }
@@ -177,7 +178,7 @@ fn tar_bundles(src_dir: &Path, out_tar: &Path) -> Result<()> {
             let name_in_tar = p
                 .file_name()
                 .and_then(|s| s.to_str())
-                .ok_or_else(|| anyhow!("bad filename"))?;
+                .ok_or_else(|| eyre!("bad filename"))?;
             builder.append_file(name_in_tar, &mut f)?;
         }
     }
@@ -190,7 +191,7 @@ fn tar_bundles(src_dir: &Path, out_tar: &Path) -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Paths
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot find home dir"))?;
+    let home = dirs::home_dir().ok_or_else(|| eyre!("cannot find home dir"))?;
     let config_path = home.join(".config/liv/liv.toml");
     let tmp_dir = PathBuf::from("/tmp/github");
     let backup_dir = home.join("Backup/github");
