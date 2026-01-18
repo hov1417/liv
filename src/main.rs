@@ -1,7 +1,6 @@
 use eyre::{eyre, Context, Result};
 use chrono::Local;
 use futures_util::stream::TryStreamExt;
-use futures_util::StreamExt;
 use gix::create::{Kind, Options};
 use octocrab::Octocrab;
 use serde::Deserialize;
@@ -72,8 +71,8 @@ async fn list_user_repos(github_client: &Octocrab, cfg: &ConfigVals) -> Result<V
         .repos()
         .send()
         .await?
-        .into_stream(github_client)
-        .take(3); // TODO, just for tests
+        .into_stream(github_client);
+        // .take(3); // TODO, just for tests
     pin!(repositories);
     let mut result = Vec::new();
     while let Some(repository) = repositories.try_next().await? {
