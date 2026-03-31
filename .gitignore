@@ -5,3 +5,7 @@ target/
 
 .idea
 .bsp
+
+# Added by cargo
+
+/target
